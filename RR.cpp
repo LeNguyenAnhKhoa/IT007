@@ -1,133 +1,245 @@
 #include <iostream>
+#include <algorithm>
 #include <iomanip>
+#include <vector>
 #include <queue>
+
 using namespace std;
 
 struct Process {
     int pid;
     int arrival_time;
     int burst_time;
-    int remaining_time;  // Thời gian còn lại
+    int remaining_time;
     int waiting_time;
     int response_time;
     int completion_time;
     int turnaround_time;
+    int start_time;
 };
 
-void calculateTimes(Process processes[], int n, int quantum) {
+void calculateTimes(Process processes[], int n, int q) {
+    queue<int> ready_queue;
     int current_time = 0;
     int completed = 0;
-    queue<int> q;
-    bool is_in_queue[100] = {false};
-    bool response_flag[100] = {false};
+    bool is_completed[100] = {0};
 
-    // Thêm các process có arrival_time = 0 vào hàng đợi
     for (int i = 0; i < n; i++) {
         processes[i].remaining_time = processes[i].burst_time;
-        if (processes[i].arrival_time == 0) {
-            q.push(i);
-            is_in_queue[i] = true;
-        }
+        processes[i].start_time = -1;
     }
+
+    // Add the first arrived process to the ready queue
+    int next_arrival = 0;
+    if (processes[0].arrival_time == 0) {
+        ready_queue.push(0);
+    } else {
+        current_time = processes[0].arrival_time;
+        ready_queue.push(0);
+    }
+
 
     while (completed != n) {
-        if (!q.empty()) {
-            int idx = q.front();
-            q.pop();
-
-            // Ghi lại response time nếu chưa được tính
-            if (!response_flag[idx]) {
-                processes[idx].response_time = current_time - processes[idx].arrival_time;
-                response_flag[idx] = true;
+        if (ready_queue.empty()) {
+            // Find the next arriving process
+            int next_process = -1;
+            int min_arrival = INT_MAX;
+            for (int i = 0; i < n; i++) {
+                if (!is_completed[i] && processes[i].arrival_time > current_time && processes[i].arrival_time < min_arrival) {
+                    min_arrival = processes[i].arrival_time;
+                    next_process = i;
+                }
             }
 
-            // Xử lý trong quantum time hoặc thời gian còn lại của process
-            if (processes[idx].remaining_time <= quantum) {
-                current_time += processes[idx].remaining_time;
-                processes[idx].remaining_time = 0;
-                processes[idx].completion_time = current_time;
-                processes[idx].turnaround_time = processes[idx].completion_time - processes[idx].arrival_time;
-                processes[idx].waiting_time = processes[idx].turnaround_time - processes[idx].burst_time;
-                completed++;
+            if (next_process != -1) {
+                current_time = processes[next_process].arrival_time;
+                ready_queue.push(next_process);
             } else {
-                current_time += quantum;
-                processes[idx].remaining_time -= quantum;
-            }
-
-            // Thêm các process đến trong thời gian current_time vào hàng đợi
-            for (int i = 0; i < n; i++) {
-                if (processes[i].arrival_time <= current_time && !is_in_queue[i] && processes[i].remaining_time > 0) {
-                    q.push(i);
-                    is_in_queue[i] = true;
-                }
-            }
-
-            // Đưa process vừa xử lý xong quantum về cuối hàng đợi nếu nó chưa hoàn thành
-            if (processes[idx].remaining_time > 0) {
-                q.push(idx);
-            }
-        } else {
-            current_time++;
-            // Thêm các process đến trong thời gian current_time vào hàng đợi
-            for (int i = 0; i < n; i++) {
-                if (processes[i].arrival_time <= current_time && !is_in_queue[i] && processes[i].remaining_time > 0) {
-                    q.push(i);
-                    is_in_queue[i] = true;
-                }
+                break; // All processes completed
             }
         }
-    }
-}
 
-void printGanttChart(Process processes[], int n, int quantum) {
-    cout << "\nRound Robin Gantt Chart:\n";
-    int current_time = 0;
-    queue<int> q;
-    bool is_in_queue[100] = {false};
-    for (int i = 0; i < n; i++) {
-        processes[i].remaining_time = processes[i].burst_time;
-        if (processes[i].arrival_time == 0) {
-            q.push(i);
-            is_in_queue[i] = true;
+
+        int current_process = ready_queue.front();
+        ready_queue.pop();
+
+        if (processes[current_process].start_time == -1) {
+            processes[current_process].start_time = current_time;
+            processes[current_process].response_time = processes[current_process].start_time - processes[current_process].arrival_time;
         }
-    }
 
-    while (!q.empty()) {
-        int idx = q.front();
-        q.pop();
+        int time_slice = min(q, processes[current_process].remaining_time);
+        processes[current_process].remaining_time -= time_slice;
+        current_time += time_slice;
 
-        int exec_time = min(quantum, processes[idx].remaining_time);
-        cout << "| P" << processes[idx].pid << " (" << current_time << " - " << current_time + exec_time << ") ";
 
-        current_time += exec_time;
-        processes[idx].remaining_time -= exec_time;
-
-        // Thêm các process đến trong thời gian current_time vào hàng đợi
+        // Add newly arrived processes to the ready queue
         for (int i = 0; i < n; i++) {
-            if (processes[i].arrival_time <= current_time && !is_in_queue[i] && processes[i].remaining_time > 0) {
-                q.push(i);
-                is_in_queue[i] = true;
+            if (!is_completed[i] && processes[i].arrival_time <= current_time && processes[i].arrival_time > current_time - time_slice && i != current_process) {
+                ready_queue.push(i);
             }
         }
 
-        // Đưa process vừa xử lý xong quantum về cuối hàng đợi nếu nó chưa hoàn thành
-        if (processes[idx].remaining_time > 0) {
-            q.push(idx);
+        if (processes[current_process].remaining_time == 0) {
+            processes[current_process].completion_time = current_time;
+            processes[current_process].turnaround_time = processes[current_process].completion_time - processes[current_process].arrival_time;
+            processes[current_process].waiting_time = processes[current_process].turnaround_time - processes[current_process].burst_time;
+            is_completed[current_process] = true;
+            completed++;
+        } else {
+            ready_queue.push(current_process);
         }
     }
-    cout << "|\n";
 }
+
+
+void printGanttChart(Process processes[], int n, int q) {
+    int total_time = 0;
+    for (int i = 0; i < n; i++) {
+        total_time = max(total_time, processes[i].completion_time);
+    }
+
+    vector<int> timeline(total_time, -1);
+
+    queue<int> ready_queue;
+    int current_time = 0;
+    bool is_completed[100] = {0};
+    int remaining_time[100];
+
+    for (int i = 0; i < n; i++) {
+        remaining_time[i] = processes[i].burst_time;
+    }
+    if (processes[0].arrival_time == 0) {
+        ready_queue.push(0);
+    } else {
+        current_time = processes[0].arrival_time;
+        ready_queue.push(0);
+    }
+
+    while (current_time < total_time) {
+         if (ready_queue.empty()) {
+            // Find the next arriving process
+            int next_process = -1;
+            int min_arrival = INT_MAX;
+            for (int i = 0; i < n; i++) {
+                if (!is_completed[i] && processes[i].arrival_time > current_time && processes[i].arrival_time < min_arrival) {
+                    min_arrival = processes[i].arrival_time;
+                    next_process = i;
+                }
+            }
+
+            if (next_process != -1) {
+                current_time = processes[next_process].arrival_time;
+                ready_queue.push(next_process);
+            } else {
+                break; // All processes completed
+            }
+        }
+
+        int current_process = ready_queue.front();
+        ready_queue.pop();
+
+        int time_slice = min(q, remaining_time[current_process]);
+
+        for (int i = 0; i < time_slice; i++) {
+            timeline[current_time + i] = processes[current_process].pid;
+        }
+        remaining_time[current_process] -= time_slice;
+        current_time += time_slice;
+
+        for (int i = 0; i < n; i++) {
+            if (!is_completed[i] && processes[i].arrival_time <= current_time && processes[i].arrival_time > current_time - time_slice && i != current_process) {
+                ready_queue.push(i);
+            }
+        }
+
+        if (remaining_time[current_process] == 0) {
+            is_completed[current_process] = true;
+        } else {
+            ready_queue.push(current_process);
+        }
+    }
+
+
+    cout << "\nGantt Chart:\n";
+    cout << " ";
+
+    int prev_pid = timeline[0];
+    int count = 1;
+    for (int i = 1; i <= total_time; i++) {
+        if (i == total_time || timeline[i] != prev_pid) {
+            for (int j = 0; j < count; j++) cout << "--";
+            cout << " ";
+            count = 1;
+            prev_pid = (i < total_time) ? timeline[i] : -1;
+        } else {
+            count++;
+        }
+    }
+    cout << "\n|";
+
+    prev_pid = timeline[0];
+    count = 1;
+    for (int i = 1; i <= total_time; i++) {
+        if (i == total_time || timeline[i] != prev_pid) {
+            for (int j = 0; j < count - 1; j++) cout << " ";
+            if (prev_pid != -1) cout << "P" << prev_pid;
+            else cout << " ";
+            for (int j = 0; j < count - 1; j++) cout << " ";
+            cout << "|";
+            count = 1;
+            prev_pid = (i < total_time) ? timeline[i] : -1;
+        } else {
+            count++;
+        }
+    }
+    cout << "\n ";
+
+    prev_pid = timeline[0];
+    count = 1;
+    for (int i = 1; i <= total_time; i++) {
+        if (i == total_time || timeline[i] != prev_pid) {
+            for (int j = 0; j < count; j++) cout << "--";
+            cout << " ";
+            count = 1;
+            prev_pid = (i < total_time) ? timeline[i] : -1;
+        } else {
+            count++;
+        }
+    }
+    cout << "\n";
+
+    int current_time_print = 0;
+    cout << current_time_print;
+    prev_pid = timeline[0];
+    count = 1;
+    for (int i = 1; i <= total_time; i++) {
+        if (i == total_time || timeline[i] != prev_pid) {
+            current_time_print += count;
+            if(current_time_print < 10) cout << "  ";
+            else cout << " ";
+
+            for (int j = 1; j < count; j++) cout << "  ";
+            cout << current_time_print;
+
+            count = 1;
+            prev_pid = (i < total_time) ? timeline[i] : -1;
+        } else {
+            count++;
+        }
+    }
+    cout << endl;
+}
+
 
 int main() {
-    int n, quantum;
+    int n;
     cout << "Nhap so luong tien trinh: ";
     cin >> n;
-    cout << "Nhap quantum time: ";
-    cin >> quantum;
 
     Process processes[100];
 
-    for(int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         cout << "\nTien trinh " << i + 1 << ":\n";
         processes[i].pid = i + 1;
         cout << "Arrival time: ";
@@ -136,7 +248,11 @@ int main() {
         cin >> processes[i].burst_time;
     }
 
-    calculateTimes(processes, n, quantum);
+    int q;
+    cout << "Nhap time quantum q: ";
+    cin >> q;
+
+    calculateTimes(processes, n, q);
 
     cout << "\nBang thong tin tien trinh:\n";
     cout << setw(5) << "PID" << setw(15) << "Arrival Time" << setw(15) << "Burst Time"
@@ -145,7 +261,7 @@ int main() {
 
     float avg_waiting_time = 0, avg_response_time = 0, avg_turnaround_time = 0;
 
-    for(int i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         cout << setw(5) << processes[i].pid << setw(15) << processes[i].arrival_time
              << setw(15) << processes[i].burst_time
              << setw(20) << processes[i].response_time << setw(15) << processes[i].waiting_time
@@ -160,7 +276,7 @@ int main() {
     avg_response_time /= n;
     avg_turnaround_time /= n;
 
-    printGanttChart(processes, n, quantum);
+    printGanttChart(processes, n, q);
 
     cout << "\nThoi gian doi trung binh: " << fixed << setprecision(2) << avg_waiting_time;
     cout << "\nThoi gian dap ung trung binh: " << avg_response_time;
